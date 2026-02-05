@@ -46,6 +46,9 @@ interface NotebookState {
   activeCell: string | null;
   globalExecutionCount: number;
 
+  /** Forces Monaco editors to remount safely */
+  renderKey: number;
+
   addCell: (afterId?: string) => void;
   removeCell: (id: string) => void;
   updateCellCode: (id: string, code: string) => void;
@@ -98,6 +101,9 @@ export const useNotebookStore = create<NotebookState>((set, get) => {
       null,
     globalExecutionCount: saved?.globalExecutionCount ?? 0,
 
+    // 🔑 MUST be initialized
+    renderKey: 0,
+
     addCell: (afterId) => {
       set((state) => {
         const newCell = createCell();
@@ -127,6 +133,7 @@ export const useNotebookStore = create<NotebookState>((set, get) => {
         if (state.cells.length <= 1) return state;
 
         const cells = state.cells.filter((c) => c.id !== id);
+
         const next = {
           ...state,
           cells,
@@ -221,7 +228,12 @@ export const useNotebookStore = create<NotebookState>((set, get) => {
         const cells = [...state.cells];
         [cells[index], cells[newIndex]] = [cells[newIndex], cells[index]];
 
-        const next = { ...state, cells };
+        const next = {
+          ...state,
+          cells,
+          renderKey: state.renderKey + 1, // 🔑 CRITICAL FIX
+        };
+
         saveNotebookState(next);
         return next;
       });

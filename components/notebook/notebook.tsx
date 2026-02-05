@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Plus, Loader2 } from "lucide-react";
 
 export function Notebook() {
-  const { cells, addCell } = useNotebookStore();
+  const { cells, addCell, renderKey } = useNotebookStore();
   const { isLoading, loadingStatus, isReady } = usePyodide();
 
   return (
@@ -47,7 +47,7 @@ export function Notebook() {
             <div className="space-y-4">
               {cells.map((cell, index) => (
                 <CodeCell
-                  key={cell.id}
+                  key={`${cell.id}-${renderKey}`}
                   cell={cell}
                   index={index}
                   totalCells={cells.length}
