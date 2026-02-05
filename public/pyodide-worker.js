@@ -142,6 +142,13 @@ async function runCode(code, cellId) {
     });
     return;
   }
+
+  const normalized = code.trimStart();
+
+  if (normalized.startsWith("%pip install")) {
+    await handlePipInstall(normalized, cellId);
+    return;
+  }
   
   const startTime = performance.now();
   
@@ -227,6 +234,50 @@ async function restartKernel() {
   pyodide = null;
   await initializePyodide();
 }
+
+async function handlePipInstall(code, cellId) {
+  const pkg = code.replace("%pip install", "").trim();
+
+  const startTime = performance.now();
+
+  try {
+    await pyodide.runPythonAsync(`
+import micropip
+await micropip.install("${pkg}")
+`);
+
+    const endTime = performance.now();
+
+    self.postMessage({
+      type: "result",
+      cellId,
+      result: {
+        stdout: `Successfully installed ${pkg}`,
+        stderr: "",
+        result: null,
+        images: [],
+        executionTime: endTime - startTime,
+        error: false,
+      },
+    });
+  } catch (error) {
+    const endTime = performance.now();
+
+    self.postMessage({
+      type: "result",
+      cellId,
+      result: {
+        stdout: "",
+        stderr: error.message,
+        result: null,
+        images: [],
+        executionTime: endTime - startTime,
+        error: true,
+      },
+    });
+  }
+}
+
 
 /* -------------------------------------------------
    UPDATED message handler
