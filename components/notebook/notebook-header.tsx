@@ -5,7 +5,6 @@ import { usePyodide } from "@/lib/pyodide-context";
 import { useNotebookStore } from "@/lib/notebook-store";
 import { Button } from "@/components/ui/button";
 import {
-  Plus,
   Play,
   Trash2,
   RotateCcw,
@@ -17,12 +16,18 @@ import {
 } from "lucide-react";
 
 export function NotebookHeader() {
-  const { isReady, isLoading, loadingStatus, error, runCode, restart } =
-    usePyodide();
+  const {
+    isReady,
+    isLoading,
+    loadingStatus,
+    error,
+    runCode,
+    restart,
+    writeFile, // ✅ FIX 1
+  } = usePyodide();
 
   const {
     cells,
-    addCell,
     clearAllOutputs,
     setCellRunning,
     setCellOutput,
@@ -32,7 +37,30 @@ export function NotebookHeader() {
     importNotebook,
   } = useNotebookStore();
 
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  // ✅ FIX 2: separate refs
+  const uploadInputRef = useRef<HTMLInputElement | null>(null);
+  const importInputRef = useRef<HTMLInputElement | null>(null);
+
+  /* -----------------------------
+     Upload file to Pyodide FS
+  ----------------------------- */
+  const handleUploadClick = () => {
+    uploadInputRef.current?.click();
+  };
+
+  const handleFileUpload = async (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = e.target.files?.[0];
+    if (!file || !isReady) return;
+
+    const buffer = await file.arrayBuffer();
+    await writeFile(file.name, buffer);
+
+    alert(`File "${file.name}" uploaded successfully`); // ✅ Success message
+
+    e.target.value = "";
+  };
 
   /* -----------------------------
      Run all cells
@@ -73,7 +101,7 @@ export function NotebookHeader() {
      Import notebook
   ----------------------------- */
   const handleImportClick = () => {
-    fileInputRef.current?.click();
+    importInputRef.current?.click();
   };
 
   const handleImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -85,6 +113,7 @@ export function NotebookHeader() {
       try {
         const data = JSON.parse(reader.result as string);
         importNotebook(data);
+        alert("Notebook imported successfully");
       } catch {
         alert("Invalid notebook file");
       }
@@ -95,34 +124,26 @@ export function NotebookHeader() {
   };
 
   return (
-    <header className="sticky top-0 z-50 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+    <header className="sticky top-0 z-50 border-b border-border bg-background/95 backdrop-blur">
       <div className="flex h-14 items-center justify-between px-4 md:px-6">
-        {/* Left branding */}
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
-              <span className="font-mono text-sm font-bold text-primary-foreground">
-                B
-              </span>
-            </div>
-            <span className="text-lg font-semibold showing-tight text-foreground">
-              Blockzie
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
+            <span className="font-mono text-sm font-bold text-primary-foreground">
+              B
             </span>
           </div>
-          <div className="hidden h-6 w-px bg-border md:block" />
-          <span className="hidden text-sm text-muted-foreground md:block">
-            Python Notebook
+          <span className="text-lg font-semibold tracking-tight text-foreground">
+            Blockzie
           </span>
         </div>
 
-        {/* Controls */}
         <div className="flex items-center gap-2">
           {/* Status */}
           <div className="mr-2 flex items-center gap-2">
             {isLoading && (
               <>
                 <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                <span className="hidden text-xs text-muted-foreground md:inline">
+                <span className="hidden text-xs md:inline">
                   {loadingStatus}
                 </span>
               </>
@@ -130,7 +151,7 @@ export function NotebookHeader() {
             {isReady && (
               <>
                 <CheckCircle2 className="h-4 w-4 text-success" />
-                <span className="hidden text-xs text-muted-foreground md:inline">
+                <span className="hidden text-xs md:inline">
                   Python Ready
                 </span>
               </>
@@ -138,87 +159,51 @@ export function NotebookHeader() {
             {error && (
               <>
                 <AlertCircle className="h-4 w-4 text-error" />
-                <span className="hidden text-xs text-error md:inline">
+                <span className="hidden text-xs md:inline">
                   {error}
                 </span>
               </>
             )}
           </div>
 
-          {/* Export */}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleImportClick}
-            disabled={!cells.length}
-            className="gap-1.5"
-          >
-            <Download className="h-4 w-4" />
-            <span className="hidden sm:inline">Import</span>
+          {/* Upload */}
+          <Button variant="outline" size="sm" onClick={handleUploadClick}>
+            <Upload className="h-4 w-4" />Upload file
           </Button>
+          <input
+            ref={uploadInputRef}
+            type="file"
+            className="hidden"
+            onChange={handleFileUpload}
+          />
 
           {/* Import */}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleExport}
-            className="gap-1.5"
-          >
-            <Upload className="h-4 w-4" />
-            <span className="hidden sm:inline">Export</span>
+          <Button variant="outline" size="sm" onClick={handleImportClick}>
+            <Download className="h-4 w-4" />Import JSON
           </Button>
-
           <input
-            ref={fileInputRef}
+            ref={importInputRef}
             type="file"
             accept="application/json"
             className="hidden"
             onChange={handleImportFile}
           />
 
-          {/* Existing actions */}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => addCell()}
-            disabled={!isReady}
-            className="gap-1.5"
-          >
-            <Plus className="h-4 w-4" />
-            <span className="hidden sm:inline">Add Cell</span>
+          {/* Export */}
+          <Button variant="outline" size="sm" onClick={handleExport}>
+            <Upload className="h-4 w-4" />Export JSON
           </Button>
 
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleRunAll}
-            disabled={!isReady || isLoading}
-            className="gap-1.5 bg-transparent"
-          >
-            <Play className="h-4 w-4" />
-            <span className="hidden sm:inline">Run All</span>
+          <Button variant="outline" size="sm" onClick={handleRunAll}>
+            <Play className="h-4 w-4" />Run All
           </Button>
 
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={clearAllOutputs}
-            disabled={!isReady}
-            className="gap-1.5 bg-transparent"
-          >
-            <Trash2 className="h-4 w-4" />
-            <span className="hidden sm:inline">Clear Outputs</span>
+          <Button variant="outline" size="sm" onClick={clearAllOutputs}>
+            <Trash2 className="h-4 w-4" />Delete Outputs
           </Button>
 
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={restart}
-            disabled={isLoading}
-            className="gap-1.5"
-          >
+          <Button variant="ghost" size="sm" onClick={restart}>
             <RotateCcw className="h-4 w-4" />
-            <span className="hidden sm:inline">Restart</span>
           </Button>
         </div>
       </div>

@@ -26,6 +26,9 @@ interface PyodideContextType {
   error: string | null;
   runCode: (code: string, cellId: string) => Promise<ExecutionResult>;
   restart: () => void;
+
+  writeFile: (path: string, content: string | ArrayBuffer) => Promise<void>;
+
 }
 
 const PyodideContext = createContext<PyodideContextType | null>(null);
@@ -35,7 +38,7 @@ export function PyodideProvider({ children }: { children: ReactNode }) {
   const [isReady, setIsReady] = useState(false);
   const [loadingStatus, setLoadingStatus] = useState("Initializing...");
   const [error, setError] = useState<string | null>(null);
-  
+
   const workerRef = useRef<Worker | null>(null);
   const pendingCallsRef = useRef<Map<string, {
     resolve: (result: ExecutionResult) => void;
@@ -110,20 +113,34 @@ export function PyodideProvider({ children }: { children: ReactNode }) {
 
   const restart = useCallback(() => {
     if (!workerRef.current) return;
-    
+
     setIsLoading(true);
     setIsReady(false);
     setLoadingStatus("Restarting kernel...");
     setError(null);
-    
+
     // Clear pending calls
     pendingCallsRef.current.forEach(({ reject }) => {
       reject(new Error("Kernel restarted"));
     });
     pendingCallsRef.current.clear();
-    
+
     workerRef.current.postMessage({ type: "restart" });
   }, []);
+
+  const writeFile = useCallback(
+    async (path: string, content: string | ArrayBuffer) => {
+      if (!workerRef.current || !isReady) return;
+
+      workerRef.current.postMessage({
+        type: "write-file",
+        path,
+        content,
+      });
+    },
+    [isReady]
+  );
+
 
   return (
     <PyodideContext.Provider
@@ -134,6 +151,7 @@ export function PyodideProvider({ children }: { children: ReactNode }) {
         error,
         runCode,
         restart,
+        writeFile,
       }}
     >
       {children}

@@ -6,6 +6,20 @@ let isInitialized = false;
 // Import Pyodide from CDN
 importScripts("https://cdn.jsdelivr.net/pyodide/v0.26.2/full/pyodide.js");
 
+/* -------------------------------------------------
+   NEW: File system write helper
+------------------------------------------------- */
+async function writeFile(path, content) {
+  if (!isInitialized || !pyodide) return;
+
+  const data =
+    typeof content === "string"
+      ? new TextEncoder().encode(content)
+      : new Uint8Array(content);
+
+  pyodide.FS.writeFile(path, data);
+}
+
 // Helper code for matplotlib and output capture
 const helperCode = `
 import sys
@@ -116,7 +130,7 @@ async function runCode(code, cellId) {
   if (!isInitialized) {
     self.postMessage({
       type: "result",
-      cellId: cellId,
+      cellId,
       result: {
         stdout: "",
         stderr: "Python environment not ready. Please wait...",
@@ -149,12 +163,12 @@ async function runCode(code, cellId) {
       
       self.postMessage({
         type: "result",
-        cellId: cellId,
+        cellId,
         result: {
-          stdout: stdout,
+          stdout,
           stderr: stderr + "\n" + execError.message,
           result: null,
-          images: images,
+          images,
           executionTime: endTime - startTime,
           error: true,
         }
@@ -173,24 +187,20 @@ async function runCode(code, cellId) {
     
     let resultStr = null;
     if (result !== undefined && result !== null) {
-      try {
-        const str = String(result);
-        if (str !== "None" && str !== "undefined") {
-          resultStr = str;
-        }
-      } catch (e) {
-        resultStr = null;
+      const str = String(result);
+      if (str !== "None" && str !== "undefined") {
+        resultStr = str;
       }
     }
     
     self.postMessage({
       type: "result",
-      cellId: cellId,
+      cellId,
       result: {
-        stdout: stdout,
-        stderr: stderr,
+        stdout,
+        stderr,
         result: resultStr,
-        images: images,
+        images,
         executionTime: endTime - startTime,
         error: false,
       }
@@ -199,7 +209,7 @@ async function runCode(code, cellId) {
     const endTime = performance.now();
     self.postMessage({
       type: "result",
-      cellId: cellId,
+      cellId,
       result: {
         stdout: "",
         stderr: error.message,
@@ -218,17 +228,23 @@ async function restartKernel() {
   await initializePyodide();
 }
 
+/* -------------------------------------------------
+   UPDATED message handler
+------------------------------------------------- */
 self.onmessage = async function(event) {
   const data = event.data;
   const type = data.type;
-  const code = data.code;
-  const cellId = data.cellId;
   
   if (type === "init") {
     await initializePyodide();
-  } else if (type === "run") {
-    await runCode(code, cellId);
-  } else if (type === "restart") {
+  } 
+  else if (type === "run") {
+    await runCode(data.code, data.cellId);
+  } 
+  else if (type === "restart") {
     await restartKernel();
+  } 
+  else if (type === "write-file") {
+    await writeFile(data.path, data.content);
   }
 };
