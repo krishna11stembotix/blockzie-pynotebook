@@ -59,6 +59,8 @@ interface NotebookState {
   setCellExecutionCount: (id: string, count: number) => void;
   moveCell: (id: string, direction: "up" | "down") => void;
   clearAllOutputs: () => void;
+  exportNotebook: () => string;
+  importNotebook: (data: any) => void;
 }
 
 /* ---------------------------------------------
@@ -254,5 +256,39 @@ export const useNotebookStore = create<NotebookState>((set, get) => {
         return next;
       });
     },
+
+    exportNotebook: () => {
+      const state = get();
+      const data = {
+        version: 1,
+        cells: state.cells,
+        activeCell: state.activeCell,
+        globalExecutionCount: state.globalExecutionCount,
+        exportedAt: new Date().toISOString(),
+      };
+      return JSON.stringify(data, null, 2);
+    },
+
+    importNotebook: (data) => {
+      if (!data || !Array.isArray(data.cells)) return;
+
+      const cells = data.cells.map((c: any) => ({
+        id: crypto.randomUUID(), // prevent ID collisions
+        code: c.code ?? "",
+        output: c.output ?? null,
+        isRunning: false,
+        executionCount: c.executionCount ?? null,
+      }));
+
+      const next = {
+        cells,
+        activeCell: cells[0]?.id ?? null,
+        globalExecutionCount: data.globalExecutionCount ?? 0,
+      };
+
+      saveNotebookState(next);
+      set(next);
+    },
+
   };
 });
