@@ -13,6 +13,7 @@ import {
   AlertCircle,
   Download,
   Upload,
+  Cpu,
 } from "lucide-react";
 
 export function NotebookHeader() {
@@ -23,11 +24,13 @@ export function NotebookHeader() {
     error,
     runCode,
     restart,
-    writeFile, // ✅ FIX 1
+    writeFile,
   } = usePyodide();
 
   const {
     cells,
+    kernelId,
+    setKernel,
     clearAllOutputs,
     setCellRunning,
     setCellOutput,
@@ -37,9 +40,30 @@ export function NotebookHeader() {
     importNotebook,
   } = useNotebookStore();
 
-  // ✅ FIX 2: separate refs
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const importInputRef = useRef<HTMLInputElement | null>(null);
+
+  /* -----------------------------
+     Kernel switch handler
+  ----------------------------- */
+  const handleKernelChange = (
+    e: React.ChangeEvent<HTMLSelectElement>
+  ) => {
+    const nextKernel = e.target.value as "pyodide" | "docker";
+
+    if (nextKernel === kernelId) return;
+
+    if (
+      !confirm(
+        "Switching kernel will clear all outputs and restart the runtime. Continue?"
+      )
+    ) {
+      return;
+    }
+
+    setKernel(nextKernel);
+    restart();
+  };
 
   /* -----------------------------
      Upload file to Pyodide FS
@@ -57,8 +81,7 @@ export function NotebookHeader() {
     const buffer = await file.arrayBuffer();
     await writeFile(file.name, buffer);
 
-    alert(`File "${file.name}" uploaded successfully`); // ✅ Success message
-
+    alert(`File "${file.name}" uploaded successfully`);
     e.target.value = "";
   };
 
@@ -138,6 +161,19 @@ export function NotebookHeader() {
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Kernel selector */}
+          <div className="mr-2 flex items-center gap-1">
+            <Cpu className="h-4 w-4 text-muted-foreground" />
+            <select
+              value={kernelId}
+              onChange={handleKernelChange}
+              className="h-8 rounded-md border border-border bg-background px-2 text-xs"
+            >
+              <option value="pyodide">Browser (Pyodide)</option>
+              <option value="docker">Docker (Full Python)</option>
+            </select>
+          </div>
+
           {/* Status */}
           <div className="mr-2 flex items-center gap-2">
             {isLoading && (

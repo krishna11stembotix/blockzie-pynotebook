@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useCallback, useEffect } from "react";
+import { useRef, useCallback, useEffect, useMemo } from "react";
 import Editor, { type OnMount } from "@monaco-editor/react";
 import { usePyodide } from "@/lib/pyodide-context";
 import { useNotebookStore, type Cell } from "@/lib/notebook-store";
@@ -18,6 +18,9 @@ import {
 import { cn } from "@/lib/utils";
 import type * as Monaco from "monaco-editor";
 
+import { staticKernels } from "@/lib/kernels";
+import { createPyodideKernel } from "@/lib/kernels/pyodide-kernel";
+
 interface CodeCellProps {
   cell: Cell;
   index: number;
@@ -26,9 +29,12 @@ interface CodeCellProps {
 
 export function CodeCell({ cell, index, totalCells }: CodeCellProps) {
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
-  const { isReady, runCode } = usePyodide();
+
+  const pyodide = usePyodide();
+
   const {
     activeCell,
+    kernelId,
     setActiveCell,
     updateCellCode,
     setCellOutput,
@@ -42,46 +48,50 @@ export function CodeCell({ cell, index, totalCells }: CodeCellProps) {
 
   const isActive = activeCell === cell.id;
 
+  /**
+   * Resolve active kernel
+   */
+  const kernel = useMemo(() => {
+    if (kernelId === "pyodide") {
+      return createPyodideKernel(pyodide.runCode, pyodide.restart);
+    }
+    return staticKernels[kernelId]!;
+  }, [kernelId, pyodide]);
+
   const handleEditorDidMount: OnMount = useCallback((editor) => {
     editorRef.current = editor;
   }, []);
 
   const handleRunCell = useCallback(async () => {
-    if (!isReady || cell.isRunning || !cell.code.trim()) return;
+    if (cell.isRunning || !cell.code.trim()) return;
 
     setCellRunning(cell.id, true);
     const execCount = incrementExecutionCount();
     setCellExecutionCount(cell.id, execCount);
 
-    let result;
+    try {
+      const kernelResult = await kernel.execute(cell.code, cell.id);
 
-    if (cell.code.startsWith("#docker")) {
-      const docker = await import("@/lib/docker-kernel");
-      const dockerResult = await docker.runDockerCode(cell.code);
+      setCellOutput(cell.id, {
+        stdout: kernelResult.stdout,
+        stderr: kernelResult.stderr,
+        result: null, // kernels don't return expression values yet
+        images: kernelResult.images ?? [],
+        executionTime: kernelResult.executionTime,
+        error: kernelResult.error,
+      });
 
-      result = {
-        stdout: dockerResult.stdout,
-        stderr: dockerResult.stderr,
-        result: null,
-        images: [],
-        executionTime: dockerResult.executionTime,
-        error: dockerResult.error,
-      };
-    } else {
-      result = await runCode(cell.code, cell.id);
+    } finally {
+      setCellRunning(cell.id, false);
     }
-
-    setCellOutput(cell.id, result);
-    setCellRunning(cell.id, false);
   }, [
-    isReady,
     cell.isRunning,
     cell.code,
     cell.id,
+    kernel,
     setCellRunning,
     incrementExecutionCount,
     setCellExecutionCount,
-    runCode,
     setCellOutput,
   ]);
 
@@ -93,10 +103,7 @@ export function CodeCell({ cell, index, totalCells }: CodeCellProps) {
     const disposable = editor.addAction({
       id: "run-cell",
       label: "Run Cell",
-      keybindings: [
-        // Shift + Enter (Monaco.KeyMod.Shift | Monaco.KeyCode.Enter)
-        1024 + 3,
-      ],
+      keybindings: [1024 + 3], // Shift + Enter
       run: () => {
         handleRunCell();
       },
@@ -128,7 +135,7 @@ export function CodeCell({ cell, index, totalCells }: CodeCellProps) {
             size="icon"
             className="h-7 w-7"
             onClick={handleRunCell}
-            disabled={!isReady || cell.isRunning}
+            disabled={cell.isRunning}
           >
             {cell.isRunning ? (
               <Loader2 className="h-4 w-4 animate-spin text-primary" />
@@ -137,11 +144,9 @@ export function CodeCell({ cell, index, totalCells }: CodeCellProps) {
             )}
           </Button>
 
-          <div className="flex items-center gap-1.5">
-            <span className="font-mono text-xs text-muted-foreground">
-              In [{cell.executionCount ?? " "}]:
-            </span>
-          </div>
+          <span className="font-mono text-xs text-muted-foreground">
+            In [{cell.executionCount ?? " "}]:
+          </span>
         </div>
 
         <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
@@ -186,64 +191,65 @@ export function CodeCell({ cell, index, totalCells }: CodeCellProps) {
       {/* Code editor */}
       <div className="overflow-hidden rounded-b-lg">
         <Editor
-          height={editorHeight}
-          language="python"
-          theme="blockzie-dark"
-          value={cell.code}
-          onChange={(value) => updateCellCode(cell.id, value ?? "")}
-          onMount={handleEditorDidMount}
-          options={{
-            minimap: { enabled: false },
-            scrollBeyondLastLine: false,
-            fontSize: 14,
-            fontFamily: "'Geist Mono', monospace",
-            lineNumbers: "on",
-            lineNumbersMinChars: 3,
-            glyphMargin: false,
-            folding: false,
-            lineDecorationsWidth: 8,
-            lineHeight: 19,
-            renderLineHighlight: "line",
-            scrollbar: {
-              vertical: "auto",
-              horizontal: "auto",
-              verticalScrollbarSize: 8,
-              horizontalScrollbarSize: 8,
-            },
-            padding: { top: 8, bottom: 8 },
-            automaticLayout: true,
-            tabSize: 4,
-            wordWrap: "on",
-            contextmenu: false,
-          }}
-          beforeMount={(monaco) => {
-            monaco.editor.defineTheme("blockzie-dark", {
-              base: "vs-dark",
-              inherit: true,
-              rules: [
-                { token: "comment", foreground: "6b7280", fontStyle: "italic" },
-                { token: "keyword", foreground: "c084fc" },
-                { token: "string", foreground: "4ade80" },
-                { token: "number", foreground: "fbbf24" },
-                { token: "type", foreground: "60a5fa" },
-                { token: "function", foreground: "60a5fa" },
-                { token: "variable", foreground: "f472b6" },
-                { token: "operator", foreground: "94a3b8" },
-              ],
-              colors: {
-                "editor.background": "#1a1a1a",
-                "editor.foreground": "#e5e5e5",
-                "editor.lineHighlightBackground": "#262626",
-                "editor.selectionBackground": "#374151",
-                "editorCursor.foreground": "#4ade80",
-                "editorLineNumber.foreground": "#6b7280",
-                "editorLineNumber.activeForeground": "#9ca3af",
-                "editor.selectionHighlightBackground": "#374151",
-                "editorIndentGuide.background1": "#374151",
-              },
-            });
-          }}
-        />
+  height={editorHeight}
+  language="python"
+  theme="blockzie-dark"
+  value={cell.code}
+  onChange={(value) => updateCellCode(cell.id, value ?? "")}
+  onMount={handleEditorDidMount}
+  options={{
+    minimap: { enabled: false },
+    scrollBeyondLastLine: false,
+    fontSize: 14,
+    fontFamily: "'Geist Mono', monospace",
+    lineNumbers: "on",
+    lineNumbersMinChars: 3,
+    glyphMargin: false,
+    folding: false,
+    lineDecorationsWidth: 8,
+    lineHeight: 19,
+    renderLineHighlight: "line",
+    scrollbar: {
+      vertical: "auto",
+      horizontal: "auto",
+      verticalScrollbarSize: 8,
+      horizontalScrollbarSize: 8,
+    },
+    padding: { top: 8, bottom: 8 },
+    automaticLayout: true,
+    tabSize: 4,
+    wordWrap: "on",
+    contextmenu: false,
+  }}
+  beforeMount={(monaco) => {
+    monaco.editor.defineTheme("blockzie-dark", {
+      base: "vs-dark",
+      inherit: true,
+      rules: [
+        { token: "comment", foreground: "6b7280", fontStyle: "italic" },
+        { token: "keyword", foreground: "c084fc" },
+        { token: "string", foreground: "4ade80" },
+        { token: "number", foreground: "fbbf24" },
+        { token: "type", foreground: "60a5fa" },
+        { token: "function", foreground: "60a5fa" },
+        { token: "variable", foreground: "f472b6" },
+        { token: "operator", foreground: "94a3b8" },
+      ],
+      colors: {
+        "editor.background": "#1a1a1a",
+        "editor.foreground": "#e5e5e5",
+        "editor.lineHighlightBackground": "#262626",
+        "editor.selectionBackground": "#374151",
+        "editorCursor.foreground": "#4ade80",
+        "editorLineNumber.foreground": "#6b7280",
+        "editorLineNumber.activeForeground": "#9ca3af",
+        "editor.selectionHighlightBackground": "#374151",
+        "editorIndentGuide.background1": "#374151",
+      },
+    });
+  }}
+/>
+
       </div>
 
       {/* Cell output */}
