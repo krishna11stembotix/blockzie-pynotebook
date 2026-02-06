@@ -53,7 +53,24 @@ export function CodeCell({ cell, index, totalCells }: CodeCellProps) {
     const execCount = incrementExecutionCount();
     setCellExecutionCount(cell.id, execCount);
 
-    const result = await runCode(cell.code, cell.id);
+    let result;
+
+    if (cell.code.startsWith("#docker")) {
+      const docker = await import("@/lib/docker-kernel");
+      const dockerResult = await docker.runDockerCode(cell.code);
+
+      result = {
+        stdout: dockerResult.stdout,
+        stderr: dockerResult.stderr,
+        result: null,
+        images: [],
+        executionTime: dockerResult.executionTime,
+        error: dockerResult.error,
+      };
+    } else {
+      result = await runCode(cell.code, cell.id);
+    }
+
     setCellOutput(cell.id, result);
     setCellRunning(cell.id, false);
   }, [

@@ -11,6 +11,7 @@ function saveNotebookState(state: {
   cells: Cell[];
   activeCell: string | null;
   globalExecutionCount: number;
+  kernelId: "pyodide" | "docker";
 }) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
@@ -19,6 +20,7 @@ function loadNotebookState(): {
   cells: Cell[];
   activeCell: string | null;
   globalExecutionCount: number;
+  kernelId: "pyodide" | "docker";
 } | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -46,6 +48,8 @@ interface NotebookState {
   activeCell: string | null;
   globalExecutionCount: number;
 
+  kernelId: "pyodide" | "docker";
+
   /** Forces Monaco editors to remount safely */
   renderKey: number;
 
@@ -59,6 +63,9 @@ interface NotebookState {
   setCellExecutionCount: (id: string, count: number) => void;
   moveCell: (id: string, direction: "up" | "down") => void;
   clearAllOutputs: () => void;
+
+  setKernel: (kernelId: "pyodide" | "docker") => void;
+
   exportNotebook: () => string;
   importNotebook: (data: any) => void;
 }
@@ -103,7 +110,8 @@ export const useNotebookStore = create<NotebookState>((set, get) => {
       null,
     globalExecutionCount: saved?.globalExecutionCount ?? 0,
 
-    // 🔑 MUST be initialized
+    kernelId: saved?.kernelId ?? "pyodide",
+
     renderKey: 0,
 
     addCell: (afterId) => {
@@ -233,7 +241,7 @@ export const useNotebookStore = create<NotebookState>((set, get) => {
         const next = {
           ...state,
           cells,
-          renderKey: state.renderKey + 1, // 🔑 CRITICAL FIX
+          renderKey: state.renderKey + 1,
         };
 
         saveNotebookState(next);
@@ -257,10 +265,30 @@ export const useNotebookStore = create<NotebookState>((set, get) => {
       });
     },
 
+    setKernel: (kernelId) => {
+      set((state) => {
+        const next = {
+          ...state,
+          kernelId,
+          globalExecutionCount: 0,
+          cells: state.cells.map((c) => ({
+            ...c,
+            output: null,
+            executionCount: null,
+            isRunning: false,
+          })),
+        };
+
+        saveNotebookState(next);
+        return next;
+      });
+    },
+
     exportNotebook: () => {
       const state = get();
       const data = {
         version: 1,
+        kernelId: state.kernelId,
         cells: state.cells,
         activeCell: state.activeCell,
         globalExecutionCount: state.globalExecutionCount,
@@ -273,7 +301,7 @@ export const useNotebookStore = create<NotebookState>((set, get) => {
       if (!data || !Array.isArray(data.cells)) return;
 
       const cells = data.cells.map((c: any) => ({
-        id: crypto.randomUUID(), // prevent ID collisions
+        id: crypto.randomUUID(),
         code: c.code ?? "",
         output: c.output ?? null,
         isRunning: false,
@@ -284,11 +312,11 @@ export const useNotebookStore = create<NotebookState>((set, get) => {
         cells,
         activeCell: cells[0]?.id ?? null,
         globalExecutionCount: data.globalExecutionCount ?? 0,
+        kernelId: data.kernelId ?? "pyodide",
       };
 
       saveNotebookState(next);
       set(next);
     },
-
   };
 });
