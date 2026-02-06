@@ -9,7 +9,7 @@ RUN pip install --no-cache-dir \
     pandas \
     matplotlib \
     scikit-learn \
-    opencv-python \
+    opencv-python-headless \
     tensorflow
 
 # Default command
