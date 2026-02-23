@@ -5,24 +5,45 @@ import tempfile
 import time
 import os
 from fastapi.middleware.cors import CORSMiddleware
+from dotenv import load_dotenv
 
+load_dotenv()
+
+# --------------------------------------------------
+# Configuration
+# --------------------------------------------------
+
+DOCKER_IMAGE = os.getenv("BLOCKZIE_DOCKER_IMAGE", "blockzie-python")
+EXECUTION_TIMEOUT = int(os.getenv("BLOCKZIE_EXEC_TIMEOUT", "15"))
+
+CORS_ORIGINS = os.getenv(
+    "BLOCKZIE_CORS_ORIGINS",
+    "http://localhost:3000,http://127.0.0.1:3000",
+).split(",")
+
+
+# --------------------------------------------------
+# App setup
+# --------------------------------------------------
 
 app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-    ],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
+# --------------------------------------------------
+# Models
+# --------------------------------------------------
+
 class ExecuteRequest(BaseModel):
     code: str
+
 
 class ExecuteResponse(BaseModel):
     stdout: str
@@ -30,46 +51,123 @@ class ExecuteResponse(BaseModel):
     executionTime: float
     error: bool
 
+
+# --------------------------------------------------
+# Execution logic
+# --------------------------------------------------
+
+def run_docker_code(code_path: str):
+    openrouter_key = os.getenv("OPENROUTER_API_KEY")
+
+    docker_command = [
+        "docker",
+        "run",
+        "--rm",
+        "-v",
+        f"{os.path.dirname(code_path)}:/workspace",
+    ]
+
+    # Only pass env if key exists
+    if openrouter_key:
+        docker_command.extend([
+            "-e", f"OPENROUTER_API_KEY={openrouter_key}"
+        ])
+
+    docker_command.extend([
+        DOCKER_IMAGE,
+        "python",
+        "/workspace/cell_exec.py",
+    ])
+
+    return subprocess.run(
+        docker_command,
+        capture_output=True,
+        text=True,
+        timeout=EXECUTION_TIMEOUT,
+    )
+
+
+def create_ai_module(temp_dir):
+    ai_code = """
+import requests
+import os
+
+class chatGPT:
+    def __init__(self, model="openai/gpt-4o-mini"):
+        self.model = model
+        self.api_key = os.getenv("OPENROUTER_API_KEY")
+
+    def ask(self, prompt):
+        if not self.api_key:
+            raise ValueError("OPENROUTER_API_KEY not set")
+
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        }
+
+        data = {
+            "model": self.model,
+            "messages": [
+                {"role": "user", "content": prompt}
+            ]
+        }
+
+        response = requests.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers=headers,
+            json=data,
+            timeout=60
+        )
+
+        if response.status_code != 200:
+            raise Exception(f"OpenRouter error: {response.text}")
+
+        result = response.json()
+        return result["choices"][0]["message"]["content"]
+"""
+
+    ai_path = os.path.join(temp_dir, "AI.py")
+    with open(ai_path, "w") as f:
+        f.write(ai_code)
+
+# --------------------------------------------------
+# API endpoint
+# --------------------------------------------------
+
 @app.post("/execute", response_model=ExecuteResponse)
 def execute_code(req: ExecuteRequest):
     start_time = time.time()
 
     with tempfile.TemporaryDirectory() as temp_dir:
+        create_ai_module(temp_dir)
         code_path = os.path.join(temp_dir, "cell_exec.py")
 
         with open(code_path, "w") as f:
             f.write(req.code)
 
         try:
-            result = subprocess.run(
-                [
-                    "docker",
-                    "run",
-                    "--rm",
-                    "-v",
-                    f"{temp_dir}:/workspace",
-                    "blockzie-python",
-                    "python",
-                    "/workspace/cell_exec.py"
-                ],
-                capture_output=True,
-                text=True,
-                timeout=15
-            )
-
-            execution_time = time.time() - start_time
+            result = run_docker_code(code_path)
 
             return {
                 "stdout": result.stdout,
                 "stderr": result.stderr,
-                "executionTime": execution_time,
-                "error": result.returncode != 0
+                "executionTime": time.time() - start_time,
+                "error": result.returncode != 0,
             }
 
         except subprocess.TimeoutExpired:
             return {
                 "stdout": "",
                 "stderr": "Execution timed out",
-                "executionTime": 15,
-                "error": True
+                "executionTime": EXECUTION_TIMEOUT,
+                "error": True,
+            }
+
+        except FileNotFoundError:
+            return {
+                "stdout": "",
+                "stderr": "Docker is not available on this system",
+                "executionTime": 0,
+                "error": True,
             }
