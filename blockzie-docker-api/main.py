@@ -139,33 +139,36 @@ class chatGPT:
 def execute_code(req: ExecuteRequest):
     start_time = time.time()
 
-    with tempfile.TemporaryDirectory() as temp_dir:
-        create_ai_module(temp_dir)
-        code_path = os.path.join(temp_dir, "cell_exec.py")
+    host_exec_root = "/host_exec"
+    os.makedirs(host_exec_root, exist_ok=True)
+    temp_dir = tempfile.mkdtemp(dir=host_exec_root)
 
-        with open(code_path, "w") as f:
-            f.write(req.code)
+    create_ai_module(temp_dir)
+    code_path = os.path.join(temp_dir, "cell_exec.py")
 
-        try:
-            result = run_docker_code(code_path)
+    with open(code_path, "w") as f:
+        f.write(req.code)
 
-            return {
-                "stdout": result.stdout,
-                "stderr": result.stderr,
-                "executionTime": time.time() - start_time,
-                "error": result.returncode != 0,
-            }
+    try:
+        result = run_docker_code(code_path)
 
-        except subprocess.TimeoutExpired:
-            return {
+        return {
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "executionTime": time.time() - start_time,
+            "error": result.returncode != 0,
+        }
+
+    except subprocess.TimeoutExpired:
+        return {
                 "stdout": "",
                 "stderr": "Execution timed out",
                 "executionTime": EXECUTION_TIMEOUT,
                 "error": True,
             }
 
-        except FileNotFoundError:
-            return {
+    except FileNotFoundError:
+        return {
                 "stdout": "",
                 "stderr": "Docker is not available on this system",
                 "executionTime": 0,
