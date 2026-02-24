@@ -8,7 +8,7 @@ export interface DockerExecutionResult {
 export async function runDockerCode(
   code: string
 ): Promise<DockerExecutionResult> {
-  const response = await fetch("http://160.187.69.147:8000/execute", {
+  const response = await fetch("/api/execute", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
