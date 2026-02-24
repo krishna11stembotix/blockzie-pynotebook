@@ -53,9 +53,7 @@ class ExecuteResponse(BaseModel):
     error: bool
 
 # --------------------------------------------------
-# Execution logic
-# --------------------------------------------------
-
+# Execution logic# --------------------------------------------------
 def run_docker_code(code_path: str):
     openrouter_key = os.getenv("OPENROUTER_API_KEY")
 
@@ -65,20 +63,20 @@ def run_docker_code(code_path: str):
         "--rm",
         "-v",
         f"{os.path.dirname(code_path)}:/workspace",
+    ]
+
+    # Pass environment variable if exists
+    if openrouter_key:
+        docker_command.extend([
+            "-e",
+            f"OPENROUTER_API_KEY={openrouter_key}"
+        ])
+
+    docker_command.extend([
         DOCKER_IMAGE,
         "python",
         "/workspace/cell_exec.py",
-    ]
-
-    if openrouter_key:
-        docker_command.insert(
-            4,
-            "-e"
-        )
-        docker_command.insert(
-            5,
-            f"OPENROUTER_API_KEY={openrouter_key}"
-        )
+    ])
 
     return subprocess.run(
         docker_command,
@@ -86,7 +84,6 @@ def run_docker_code(code_path: str):
         text=True,
         timeout=EXECUTION_TIMEOUT,
     )
-
 
 def create_ai_module(temp_dir):
     ai_code = """
