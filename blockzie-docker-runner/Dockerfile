@@ -10,7 +10,8 @@ RUN pip install --no-cache-dir \
     matplotlib \
     scikit-learn \
     opencv-python-headless \
-    tensorflow
+    tensorflow \
+    requests
 
 # Default command
 CMD ["python"]

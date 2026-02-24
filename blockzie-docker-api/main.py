@@ -21,6 +21,8 @@ CORS_ORIGINS = os.getenv(
     "http://localhost:3000,http://127.0.0.1:3000",
 ).split(",")
 
+# Host execution directory (MUST match docker run volume mount)
+HOST_EXEC_ROOT = "/home/blockzie/blockzie-exec"
 
 # --------------------------------------------------
 # App setup
@@ -36,7 +38,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
 # --------------------------------------------------
 # Models
 # --------------------------------------------------
@@ -51,37 +52,33 @@ class ExecuteResponse(BaseModel):
     executionTime: float
     error: bool
 
-
 # --------------------------------------------------
 # Execution logic
 # --------------------------------------------------
 
 def run_docker_code(code_path: str):
     openrouter_key = os.getenv("OPENROUTER_API_KEY")
-    
-    host_path = os.path.dirname(code_path).replace(
-        "/host_exec",
-        "/home/blockzie/blockzie-exec"
-    )
+
     docker_command = [
         "docker",
         "run",
         "--rm",
         "-v",
         f"{os.path.dirname(code_path)}:/workspace",
-    ]
-
-    # Only pass env if key exists
-    if openrouter_key:
-        docker_command.extend([
-            "-e", f"OPENROUTER_API_KEY={openrouter_key}"
-        ])
-
-    docker_command.extend([
         DOCKER_IMAGE,
         "python",
         "/workspace/cell_exec.py",
-    ])
+    ]
+
+    if openrouter_key:
+        docker_command.insert(
+            4,
+            "-e"
+        )
+        docker_command.insert(
+            5,
+            f"OPENROUTER_API_KEY={openrouter_key}"
+        )
 
     return subprocess.run(
         docker_command,
@@ -143,11 +140,12 @@ class chatGPT:
 def execute_code(req: ExecuteRequest):
     start_time = time.time()
 
-    host_exec_root = "/host_exec"
-    os.makedirs(host_exec_root, exist_ok=True)
-    temp_dir = tempfile.mkdtemp(dir=host_exec_root)
+    os.makedirs(HOST_EXEC_ROOT, exist_ok=True)
+
+    temp_dir = tempfile.mkdtemp(dir=HOST_EXEC_ROOT)
 
     create_ai_module(temp_dir)
+
     code_path = os.path.join(temp_dir, "cell_exec.py")
 
     with open(code_path, "w") as f:
@@ -165,16 +163,16 @@ def execute_code(req: ExecuteRequest):
 
     except subprocess.TimeoutExpired:
         return {
-                "stdout": "",
-                "stderr": "Execution timed out",
-                "executionTime": EXECUTION_TIMEOUT,
-                "error": True,
-            }
+            "stdout": "",
+            "stderr": "Execution timed out",
+            "executionTime": EXECUTION_TIMEOUT,
+            "error": True,
+        }
 
     except FileNotFoundError:
         return {
-                "stdout": "",
-                "stderr": "Docker is not available on this system",
-                "executionTime": 0,
-                "error": True,
-            }
+            "stdout": "",
+            "stderr": "Docker is not available on this system",
+            "executionTime": 0,
+            "error": True,
+        }
