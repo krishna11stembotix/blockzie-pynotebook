@@ -2,8 +2,14 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install backend dependencies only
-RUN pip install --no-cache-dir fastapi uvicorn
+# Install docker CLI
+RUN apt update && apt install -y docker.io
+
+# Copy Requirements.txt
+COPY requirements.txt .
+
+# Install dependencies 
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy backend code
 COPY main.py .

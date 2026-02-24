@@ -58,7 +58,11 @@ class ExecuteResponse(BaseModel):
 
 def run_docker_code(code_path: str):
     openrouter_key = os.getenv("OPENROUTER_API_KEY")
-
+    
+    host_path = os.path.dirname(code_path).replace(
+        "/host_exec",
+        "/home/blockzie/blockzie-exec"
+    )
     docker_command = [
         "docker",
         "run",
