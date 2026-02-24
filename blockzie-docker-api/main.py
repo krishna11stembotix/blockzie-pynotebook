@@ -21,7 +21,7 @@ CORS_ORIGINS = os.getenv(
     "http://localhost:3000,http://127.0.0.1:3000",
 ).split(",")
 
-# Host execution directory (MUST match docker run volume mount)
+# MUST match docker run volume mount
 HOST_EXEC_ROOT = "/home/blockzie/blockzie-exec"
 
 # --------------------------------------------------
@@ -51,9 +51,12 @@ class ExecuteResponse(BaseModel):
     stderr: str
     executionTime: float
     error: bool
+    images: list[str] = []
 
 # --------------------------------------------------
-# Execution logic# --------------------------------------------------
+# Execution logic
+# --------------------------------------------------
+
 def run_docker_code(code_path: str):
     openrouter_key = os.getenv("OPENROUTER_API_KEY")
 
@@ -65,7 +68,6 @@ def run_docker_code(code_path: str):
         f"{os.path.dirname(code_path)}:/workspace",
     ]
 
-    # Pass environment variable if exists
     if openrouter_key:
         docker_command.extend([
             "-e",
@@ -84,6 +86,7 @@ def run_docker_code(code_path: str):
         text=True,
         timeout=EXECUTION_TIMEOUT,
     )
+
 
 def create_ai_module(temp_dir):
     ai_code = """
@@ -138,24 +141,62 @@ def execute_code(req: ExecuteRequest):
     start_time = time.time()
 
     os.makedirs(HOST_EXEC_ROOT, exist_ok=True)
-
     temp_dir = tempfile.mkdtemp(dir=HOST_EXEC_ROOT)
 
     create_ai_module(temp_dir)
 
     code_path = os.path.join(temp_dir, "cell_exec.py")
 
+    wrapped_code = f"""
+import matplotlib
+matplotlib.use('Agg')
+
+import matplotlib.pyplot as plt
+import io
+import base64
+import sys
+
+def _blockzie_show():
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png')
+    buf.seek(0)
+    img_base64 = base64.b64encode(buf.read()).decode('utf-8')
+    print("<<BLOCKZIE_IMAGE>>" + img_base64)
+    plt.close()
+
+plt.show = _blockzie_show
+
+# ---- USER CODE START ----
+{req.code}
+# ---- USER CODE END ----
+"""
+
     with open(code_path, "w") as f:
-        f.write(req.code)
+        f.write(wrapped_code)
 
     try:
         result = run_docker_code(code_path)
 
+        stdout = result.stdout
+        images = []
+
+        marker = "<<BLOCKZIE_IMAGE>>"
+
+        if marker in stdout:
+            parts = stdout.split(marker)
+            clean_stdout = parts[0]
+
+            for img in parts[1:]:
+                images.append(f"data:image/png;base64,{img.strip()}")
+
+            stdout = clean_stdout
+
         return {
-            "stdout": result.stdout,
+            "stdout": stdout,
             "stderr": result.stderr,
             "executionTime": time.time() - start_time,
             "error": result.returncode != 0,
+            "images": images
         }
 
     except subprocess.TimeoutExpired:
@@ -164,6 +205,7 @@ def execute_code(req: ExecuteRequest):
             "stderr": "Execution timed out",
             "executionTime": EXECUTION_TIMEOUT,
             "error": True,
+            "images": []
         }
 
     except FileNotFoundError:
@@ -172,4 +214,5 @@ def execute_code(req: ExecuteRequest):
             "stderr": "Docker is not available on this system",
             "executionTime": 0,
             "error": True,
+            "images": []
         }
