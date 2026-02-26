@@ -150,6 +150,13 @@ def execute_code(req: ExecuteRequest):
     code_path = os.path.join(temp_dir, "cell_exec.py")
 
     wrapped_code = f"""
+import os
+os.environ["TORCH_CPP_LOG_LEVEL"] = "ERROR"
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+
+import warnings
+warnings.filterwarnings("ignore")
+
 import matplotlib
 matplotlib.use('Agg')
 
