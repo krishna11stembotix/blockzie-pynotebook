@@ -64,7 +64,7 @@ def run_docker_code(code_path: str):
         "docker",
         "run",
         "--rm",
-        "--memmory=4g",
+        "--memory=4g",
         "-cpus=2",
         "-v",
         f"{os.path.dirname(code_path)}:/workspace",
@@ -84,7 +84,8 @@ def run_docker_code(code_path: str):
 
     return subprocess.run(
         docker_command,
-        capture_output=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         text=True,
         timeout=EXECUTION_TIMEOUT,
     )
@@ -151,6 +152,7 @@ def execute_code(req: ExecuteRequest):
 
     wrapped_code = f"""
 import os
+os.environ["YOLO_OFFLINE"] = "True"
 os.environ["TORCH_CPP_LOG_LEVEL"] = "ERROR"
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 
@@ -187,6 +189,16 @@ plt.show = _blockzie_show
         result = run_docker_code(code_path)
 
         stdout = result.stdout
+        stderr = result.stderr
+
+        # Filter NNPACK warnings
+        stderr_lines = []
+        for line in stderr.splitlines():
+            if "NNPACK" not in line:
+                stderr_lines.append(line)
+
+        stderr = "\n".join(stderr_lines)
+
         images = []
 
         marker = "<<BLOCKZIE_IMAGE>>"
@@ -202,11 +214,11 @@ plt.show = _blockzie_show
 
         return {
             "stdout": stdout,
-            "stderr": result.stderr,
+            "stderr": stderr,
             "executionTime": time.time() - start_time,
             "error": result.returncode != 0,
             "images": images
-        }
+        }        
 
     except subprocess.TimeoutExpired:
         return {
