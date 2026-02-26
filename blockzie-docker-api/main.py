@@ -14,7 +14,7 @@ load_dotenv()
 # --------------------------------------------------
 
 DOCKER_IMAGE = os.getenv("BLOCKZIE_DOCKER_IMAGE", "blockzie-python")
-EXECUTION_TIMEOUT = int(os.getenv("BLOCKZIE_EXEC_TIMEOUT", "15"))
+EXECUTION_TIMEOUT = int(os.getenv("BLOCKZIE_EXEC_TIMEOUT", "120"))
 
 CORS_ORIGINS = os.getenv(
     "BLOCKZIE_CORS_ORIGINS",
@@ -64,6 +64,8 @@ def run_docker_code(code_path: str):
         "docker",
         "run",
         "--rm",
+        "--memmory=4g",
+        "-cpus=2",
         "-v",
         f"{os.path.dirname(code_path)}:/workspace",
     ]
